@@ -1,0 +1,5 @@
+mysql:
+  dsn: "cp_65011212061:65011212061@csmsu@tcp(202.28.34.197:3306)/cp_65011212061?charset=utf8mb4&parseTime=True&loc=Local"
+
+app:
+  port: "8080"
