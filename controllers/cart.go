@@ -75,12 +75,10 @@ func (ctrl *CartController) AddToCart(c *gin.Context) {
 		return
 	}
 
-	// ตรวจสอบว่าสินค้ามีในระบบหรือไม่
+	// ตรวจสอบว่าสินค้ามีอยู่ในระบบหรือไม่
 	var product models.Product
 	if err := ctrl.db.First(&product, req.ProductID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "ไม่พบสินค้านี้ในระบบ",
-		})
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบสินค้านี้ในระบบ"})
 		return
 	}
 
@@ -95,79 +93,68 @@ func (ctrl *CartController) AddToCart(c *gin.Context) {
 
 	// ค้นหาหรือสร้างตะกร้าใหม่
 	var cart models.Cart
-	err := ctrl.db.Where("customer_id = ? AND cart_name = ?", req.CustomerID, req.CartName).
-		First(&cart).Error
+	err := ctrl.db.Where("customer_id = ? AND cart_name = ?", req.CustomerID, req.CartName).First(&cart).Error
 
 	if err == gorm.ErrRecordNotFound {
-		// สร้างตะกร้าใหม่ถ้ายังไม่มี
 		cart = models.Cart{
 			CustomerID: req.CustomerID,
 			CartName:   req.CartName,
 		}
 		if err := ctrl.db.Create(&cart).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "ไม่สามารถสร้างตะกร้าใหม่ได้",
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถสร้างตะกร้าใหม่ได้"})
 			return
 		}
-	} else if err != nil {
+	} else if err != nil && err != gorm.ErrRecordNotFound {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "เกิดข้อผิดพลาดในการค้นหาตะกร้า",
+			"error":   "เกิดข้อผิดพลาดในการค้นหาตะกร้า",
+			"details": err.Error(), // เพิ่มรายละเอียดของ error
 		})
 		return
 	}
 
-	// ตรวจสอบว่าสินค้ามีในตะกร้าแล้วหรือไม่
-	var existingItem models.CartItem
-	err = ctrl.db.Where("cart_id = ? AND product_id = ?", cart.CartID, req.ProductID).
-		First(&existingItem).Error
+	// ตรวจสอบว่าสินค้าอยู่ในตะกร้าแล้วหรือไม่
+	var cartItem models.CartItem
+	err = ctrl.db.Where("cart_id = ? AND product_id = ?", cart.CartID, req.ProductID).First(&cartItem).Error
 
 	if err == nil {
 		// อัพเดทจำนวนถ้ามีอยู่แล้ว
-		existingItem.Quantity += req.Quantity
-
-		// ตรวจสอบสต็อกอีกครั้งหลังรวมจำนวน
-		if product.StockQuantity < existingItem.Quantity {
+		newQuantity := cartItem.Quantity + req.Quantity
+		if product.StockQuantity < newQuantity {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":     "สินค้าในสต็อกไม่เพียงพอสำหรับจำนวนที่ต้องการ",
+				"error":     "สินค้าในสต็อกไม่พอ",
 				"available": product.StockQuantity,
-				"requested": existingItem.Quantity,
+				"requested": newQuantity,
 			})
 			return
 		}
-
-		if err := ctrl.db.Save(&existingItem).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "ไม่สามารถอัพเดทตะกร้าได้",
-			})
+		if err := ctrl.db.Model(&cartItem).Update("quantity", newQuantity).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถอัพเดทจำนวนสินค้าได้"})
 			return
 		}
 	} else if err == gorm.ErrRecordNotFound {
-		// เพิ่มใหม่ถ้ายังไม่มีในตะกร้า
+		// เพิ่มสินค้าถ้ายังไม่มี
 		newItem := models.CartItem{
 			CartID:    cart.CartID,
 			ProductID: req.ProductID,
 			Quantity:  req.Quantity,
 		}
 		if err := ctrl.db.Create(&newItem).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "ไม่สามารถเพิ่มสินค้าในตะกร้าได้",
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถเพิ่มสินค้าในตะกร้าได้"})
 			return
 		}
 	} else {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "เกิดข้อผิดพลาดในการตรวจสอบตะกร้า",
-		})
-		return
+		if err != nil && err != gorm.ErrRecordNotFound {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "เกิดข้อผิดพลาดในการตรวจสอบสินค้าในตะกร้า",
+				"details": err.Error(), // เพิ่มรายละเอียดของ error
+			})
+			return
+		}
 	}
 
 	// อัพเดทจำนวนสินค้าในสต็อก
-	if err := ctrl.db.Model(&product).
-		Update("stock_quantity", gorm.Expr("stock_quantity - ?", req.Quantity)).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "ไม่สามารถอัพเดทสต็อกสินค้าได้",
-		})
+	if err := ctrl.db.Model(&product).Update("stock_quantity", gorm.Expr("stock_quantity - ?", req.Quantity)).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถอัพเดทสต็อกสินค้าได้"})
 		return
 	}
 
@@ -178,6 +165,60 @@ func (ctrl *CartController) AddToCart(c *gin.Context) {
 		"quantity":   req.Quantity,
 	})
 }
+func (ctrl *CartController) GetAllCarts(c *gin.Context) {
+	// รับ customer_id จาก query parameter
+	customerID := c.Query("customer_id")
+	if customerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุ customer_id"})
+		return
+	}
+
+	// ดึงข้อมูลรถเข็นทั้งหมดของลูกค้า
+	var carts []models.Cart
+	if err := ctrl.db.Where("customer_id = ?", customerID).Find(&carts).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงข้อมูลตะกร้าได้"})
+		return
+	}
+
+	// ตรวจสอบว่ามีรถเข็นหรือไม่
+	if len(carts) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบทุกรถเข็นของลูกค้า"})
+		return
+	}
+
+	// ดึงข้อมูลสินค้าในรถเข็นแต่ละอัน
+	var response []gin.H
+
+	for _, cart := range carts {
+		var items []models.CartItem
+		if err := ctrl.db.Where("cart_id = ?", cart.CartID).Preload("Product").Find(&items).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดในการดึงสินค้าจากตะกร้า"})
+			return
+		}
+
+		// แปลงข้อมูลเป็น JSON
+		var cartItems []gin.H
+		for _, item := range items {
+			cartItems = append(cartItems, gin.H{
+				"product_id":   item.ProductID,
+				"product_name": item.Product.ProductName,
+				"quantity":     item.Quantity,
+				"price":        item.Product.Price,
+				"total_price":  float64(item.Quantity) * item.Product.Price,
+			})
+		}
+
+		response = append(response, gin.H{
+			"cart_id":   cart.CartID,
+			"cart_name": cart.CartName,
+			"items":     cartItems,
+		})
+	}
+
+	// ส่ง JSON response กลับไป
+	c.JSON(http.StatusOK, gin.H{"carts": response})
+}
+
 func SetupCartRoutes(router *gin.Engine, db *gorm.DB) {
 	cartCtrl := NewCartController(db)
 
@@ -185,5 +226,6 @@ func SetupCartRoutes(router *gin.Engine, db *gorm.DB) {
 	{
 		cartGroup.GET("/search", cartCtrl.SearchProducts)
 		cartGroup.POST("/cart/add", cartCtrl.AddToCart)
+		cartGroup.GET("/getAll", cartCtrl.GetAllCarts)
 	}
 }

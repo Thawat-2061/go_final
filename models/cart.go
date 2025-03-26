@@ -10,3 +10,7 @@ type Cart struct {
 	CreatedAt  time.Time  `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt  time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
 }
+
+func (Cart) TableName() string {
+	return "cart" // ชื่อตารางในฐานข้อมูล
+}
