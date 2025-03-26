@@ -16,6 +16,9 @@ type LoginResponse struct {
 }
 
 type ChangePasswordRequest struct {
-	OldPassword string `json:"old_password" binding:"required,min=6"`
-	NewPassword string `json:"new_password" binding:"required,min=6"`
+	CustomerID  string `json:"customer_id" binding:"required"`
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
 }
+
+// Then use ShouldBindJSON() for all fields

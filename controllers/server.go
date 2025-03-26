@@ -25,6 +25,7 @@ func StartServer() {
 
 	// Include controllers
 	SetupAuthRoutes(router, db)
+	SetupCartRoutes(router, db)
 
 	router.Run(":8080") // ระบุ port ให้ชัดเจน
 }

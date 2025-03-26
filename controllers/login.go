@@ -55,14 +55,14 @@ func (h *AuthController) Login(c *gin.Context) {
 }
 
 func (h *AuthController) ChangePassword(c *gin.Context) {
-	// Get customer ID from authenticated user (in real app, from JWT)
-	customerID := c.Param("customer_id")
-	if customerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Customer ID is required"})
-		return
+	// Define request structure including customer_id
+	var req struct {
+		CustomerID  string `json:"customer_id" binding:"required"`
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required"`
 	}
 
-	var req dto.ChangePasswordRequest
+	// Bind JSON data
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "Invalid request format",
@@ -79,8 +79,9 @@ func (h *AuthController) ChangePassword(c *gin.Context) {
 		return
 	}
 
+	// Find customer in database
 	var customer models.Customer
-	if err := h.db.First(&customer, customerID).Error; err != nil {
+	if err := h.db.First(&customer, req.CustomerID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -112,13 +113,12 @@ func (h *AuthController) ChangePassword(c *gin.Context) {
 		"message": "Password changed successfully",
 	})
 }
-
 func SetupAuthRoutes(router *gin.Engine, db *gorm.DB) {
 	authCtrl := NewAuthController(db)
 
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/login", authCtrl.Login)
-		authGroup.PUT("/:customer_id/change-password", authCtrl.ChangePassword)
+		authGroup.POST("/change-password", authCtrl.ChangePassword)
 	}
 }
